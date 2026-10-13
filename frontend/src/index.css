@@ -1,0 +1,329 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: transparent !important;
+    user-select: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #171717;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+}
+
+/* Minimalist pure white container */
+.clean-white-panel {
+  background-color: #ffffff;
+  border: 1px solid #e5e5e5;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+}
+
+.clean-white-pill {
+  background-color: #f5f5f5;
+  border: 1px solid #e5e5e5;
+}
+
+/* Coucou Island Design Tokens & Classes */
+:root {
+  --coucou-font: system-ui, "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  --coucou-mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  --coucou-ink: #f5f6f8;
+  --coucou-ink-2: #f1f2f4;
+  --coucou-dim: #9398a1;
+  --coucou-dim-2: #8e939c;
+  --coucou-dim-3: #6b7079;
+  --coucou-card: #141518;
+  --coucou-card-flat: #0e0f11;
+  --coucou-hairline: rgba(255, 255, 255, 0.05);
+  --coucou-amber: #f5a524;
+  --coucou-cyan: #22d3ee;
+  --coucou-indigo: #6366f1;
+}
+
+.coucou-island {
+  background: #000000;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+  border-right: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.coucou-card {
+  background: #141518;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+}
+
+.coucou-card-wash {
+  position: relative;
+  background: #141518;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.coucou-card-wash::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    320px 240px at 50% 120%,
+    var(--wash, rgba(99, 102, 241, 0.14)) 0%,
+    rgba(0, 0, 0, 0) 70%
+  );
+  pointer-events: none;
+}
+
+.coucou-btn {
+  font-family: var(--coucou-font);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: transform 0.08s ease-out, background 0.12s ease-out;
+}
+
+.coucou-btn:active {
+  transform: scale(0.95);
+}
+
+.coucou-btn-primary {
+  background: #f5f6f8;
+  color: #0b0c0e;
+}
+
+.coucou-btn-primary:hover {
+  background: #ffffff;
+}
+
+.coucou-btn-secondary {
+  background: rgba(255, 255, 255, 0.09);
+  color: #f1f2f4;
+}
+
+.coucou-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.coucou-kbd {
+  font-size: 10px;
+  font-family: var(--coucou-mono);
+  padding: 1px 5px;
+  border-radius: 4px;
+  opacity: 0.65;
+}
+
+.coucou-btn-primary .coucou-kbd {
+  border: 1px solid rgba(0, 0, 0, 0.35);
+}
+
+.coucou-btn-secondary .coucou-kbd {
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.coucou-code {
+  font-family: var(--coucou-mono);
+  font-size: 12px;
+  color: #e8e9ec;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 8px 12px;
+  user-select: text;
+  line-height: 1.5;
+}
+
+/* Coucou AI Shimmer Text Sweep (2.2s) */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    #7c818a 0%,
+    #f2f3f5 40%,
+    #7c818a 70%
+  );
+  background-size: 260% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: coucou-shimmer 2.2s linear infinite;
+}
+
+@keyframes coucou-shimmer {
+  from {
+    background-position: 130% 0;
+  }
+  to {
+    background-position: -130% 0;
+  }
+}
+
+/* Coucou Marching Ants File Drop Frame */
+.coucou-drop-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.coucou-drop-frame rect {
+  stroke: rgba(255, 255, 255, 0.45);
+  animation: coucou-march 1.2s linear infinite;
+}
+@keyframes coucou-march {
+  to {
+    stroke-dashoffset: -22;
+  }
+}
+
+.coucou-pill {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.15s ease-out;
+}
+
+.coucou-pill:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.coucou-pill-btn {
+  position: relative;
+  height: 32px;
+  border-radius: 999px;
+  background: #0e0f11;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  cursor: pointer;
+  transition: transform 0.15s cubic-bezier(0.3, 1.2, 0.4, 1), background 0.15s, border-color 0.15s;
+}
+
+.coucou-pill-btn:hover {
+  transform: scale(1.03);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.coucou-pill-btn:active {
+  transform: scale(0.97);
+}
+
+.coucou-pill-badge {
+  position: absolute;
+  top: -3px;
+  right: 5px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #22c55e;
+  color: #000;
+  font-size: 9.5px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+}
+
+/* Coucou Context Chip */
+.coucou-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  font-size: 11px;
+  color: #f1f2f4;
+  transition: all 0.15s ease;
+}
+
+.coucou-chip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ff6b5b, #f7b32b, #2dd4a7, #38bdf8, #a78bfa);
+}
+
+/* Coucou 3-dot Typing Wave */
+.coucou-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+}
+
+.coucou-typing i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.6);
+  display: inline-block;
+  animation: coucou-bounce 1.2s infinite ease-in-out both;
+}
+
+.coucou-typing i:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.coucou-typing i:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes coucou-bounce {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.35;
+  }
+  40% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+
+/* Coucou Model Selector Pill */
+.coucou-model-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #c8cdd4;
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.coucou-model-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #333333;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #555555;
+}
+
