@@ -115,12 +115,18 @@ class WindowController(QObject):
         new_x = self.window.x() + dx
         new_y = self.window.y() + dy
 
-        # If dragged within 15px of top screen edge, snap flush to top
-        if new_y <= 15:
+        # Clamp y >= 0 so dock can never be dragged above the monitor edge
+        if new_y <= 0:
             new_y = 0
-            # If also close to horizontal center, re-enable auto-center
+        elif new_y < 12 and dy < 0:
+            # Snap flush to top only when user is moving UPWARDS into the bezel
+            # Never trap downward dragging!
+            new_y = 0
+
+        # Auto-center handling: only if flush against top and moving upwards near center
+        if new_y == 0:
             center_x = (screen.width() - self.window.width()) // 2
-            if abs(new_x - center_x) < 40:
+            if abs(new_x - center_x) < 30 and dy < 0:
                 new_x = center_x
                 self.user_custom_moved = False
             else:
@@ -128,9 +134,9 @@ class WindowController(QObject):
         else:
             self.user_custom_moved = True
 
-        # Clamp within screen bounds
-        new_x = max(-self.window.width() // 2, min(new_x, screen.width() - self.window.width() // 2))
-        new_y = max(0, min(new_y, screen.height() - 34))
+        # Clamp within visible screen bounds so the dock remains accessible
+        new_x = max(0, min(new_x, screen.width() - self.window.width()))
+        new_y = max(0, min(new_y, screen.height() - 36))
 
         self.window.move(new_x, new_y)
 

@@ -5,7 +5,7 @@ import { EODModal } from './components/EODModal';
 import { TasksDrawer } from './components/TasksDrawer';
 import { NewsDrawer } from './components/NewsDrawer';
 import { SettingsModal } from './components/SettingsModal';
-import type { ActivityInfo, TaskItem, VisionResult, ReplySuggestion } from './types';
+import type { ActivityInfo, TaskItem, VisionResult, ReplySuggestion, OutlookAttentionItem, TaskProposalData, TaskProposalItem } from './types';
 import { api } from './api';
 import { voice } from './utils/voice';
 import { sounds } from './utils/sound';
@@ -38,13 +38,8 @@ export function App() {
 
   const [targetTab, setTargetTab] = useState<'overview' | 'chat' | 'tasks' | 'wardrobe' | null>(null);
 
-  // Teams auto-detected task proposal
-  const [taskProposal, setTaskProposal] = useState<{
-    title: string;
-    sender?: string;
-    description?: string;
-    priority?: string;
-  } | null>(null);
+  // Teams auto-detected task proposals (supports single or multi-task lists)
+  const [taskProposal, setTaskProposal] = useState<TaskProposalData | null>(null);
 
   // Proactive task reminder
   const [activeReminder, setActiveReminder] = useState<{
@@ -52,6 +47,9 @@ export function App() {
     title: string;
     message?: string;
   } | null>(null);
+
+  // Outlook email attention alert
+  const [outlookAlert, setOutlookAlert] = useState<OutlookAttentionItem | null>(null);
 
   // Screen Vision & Reply Suggestion state
   const [visionResult, setVisionResult] = useState<VisionResult | null>(null);
@@ -76,11 +74,11 @@ export function App() {
     results?: any[];
   } | null>(null);
 
-  // Modals & Drawers state
   const [showCallPrompt, setShowCallPrompt] = useState(false);
   const [endedCallSubject, setEndedCallSubject] = useState('');
   const [showEOD, setShowEOD] = useState(false);
   const [showTasks, setShowTasks] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [showNews, setShowNews] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
@@ -144,6 +142,7 @@ export function App() {
 
       ws.onopen = () => {
         console.log('[WS] Connected to Assistant server');
+        api.registerWebSocket(ws);
       };
 
       ws.onmessage = (event) => {
@@ -161,12 +160,19 @@ export function App() {
           } else if (payload.type === 'TEAMS_TASK_PROPOSAL') {
             const taskData = payload.data;
             setTaskProposal(taskData);
-            // Non-intrusive notification: do not speak over the user
+            setIsExpanded(true);
+            setTargetTab('tasks');
+            sounds.playNotification();
           } else if (payload.type === 'TASK_REMINDER') {
             const reminder = payload.data;
             setActiveReminder(reminder);
             setReplySuggestion(null);
             setVisionResult(null);
+            setIsExpanded(true);
+            sounds.playNotification();
+          } else if (payload.type === 'OUTLOOK_ATTENTION_ALERT') {
+            const item = payload.data;
+            setOutlookAlert(item);
             setIsExpanded(true);
             sounds.playNotification();
           } else if (payload.type === 'RESEARCH_STARTED') {
@@ -286,6 +292,7 @@ export function App() {
       };
 
       ws.onclose = () => {
+        api.registerWebSocket(null);
         setTimeout(connect, 3000);
       };
     };
@@ -301,27 +308,74 @@ export function App() {
     }
   };
 
-  const handleAcceptTaskProposal = async () => {
+  const handleAcceptTaskProposal = async (singleTask?: TaskProposalItem) => {
     if (!taskProposal) return;
     sounds.playClick();
     try {
-      await api.createTask({
-        title: taskProposal.title,
-        description: taskProposal.description || '',
-        source: `teams_${taskProposal.sender || 'chat'}`
-      });
-      setTaskProposal(null);
+      if (singleTask) {
+        await api.createTask({
+          title: singleTask.title,
+          description: singleTask.description || '',
+          source: singleTask.source || `teams_${singleTask.sender || taskProposal.sender || 'chat'}`
+        });
+        if (taskProposal.tasks && taskProposal.tasks.length > 1) {
+          const remaining = taskProposal.tasks.filter(t => t.title !== singleTask.title);
+          if (remaining.length > 0) {
+            setTaskProposal({
+              ...taskProposal,
+              title: remaining[0].title,
+              description: remaining[0].description,
+              tasks: remaining
+            });
+          } else {
+            setTaskProposal(null);
+          }
+        } else {
+          setTaskProposal(null);
+        }
+        voice.speak("Task added to your list.");
+      } else if (taskProposal.tasks && taskProposal.tasks.length > 0) {
+        for (const t of taskProposal.tasks) {
+          await api.createTask({
+            title: t.title,
+            description: t.description || '',
+            source: t.source || `teams_${t.sender || taskProposal.sender || 'chat'}`
+          });
+        }
+        const count = taskProposal.tasks.length;
+        setTaskProposal(null);
+        voice.speak(`Added ${count} tasks to your list.`);
+      } else {
+        await api.createTask({
+          title: taskProposal.title,
+          description: taskProposal.description || '',
+          source: `teams_${taskProposal.sender || 'chat'}`
+        });
+        setTaskProposal(null);
+        voice.speak("Task added to your list.");
+      }
       loadTasks();
       sounds.playComplete();
-      voice.speak("Task added to your list.");
     } catch (err) {
       console.error(err);
     }
   };
 
-  const handleDismissTaskProposal = () => {
-    setTaskProposal(null);
+  const handleDismissTaskProposal = (singleTaskTitle?: string) => {
     sounds.playClick();
+    if (singleTaskTitle && taskProposal?.tasks && taskProposal.tasks.length > 1) {
+      const remaining = taskProposal.tasks.filter(t => t.title !== singleTaskTitle);
+      if (remaining.length > 0) {
+        setTaskProposal({
+          ...taskProposal,
+          title: remaining[0].title,
+          description: remaining[0].description,
+          tasks: remaining
+        });
+        return;
+      }
+    }
+    setTaskProposal(null);
   };
 
   const pendingCount = tasks.filter(t => t.status === 'pending').length;
@@ -342,11 +396,16 @@ export function App() {
         onDismissProposal={handleDismissTaskProposal}
         activeReminder={activeReminder}
         onDismissReminder={() => setActiveReminder(null)}
+        outlookAlert={outlookAlert}
+        onDismissOutlookAlert={() => setOutlookAlert(null)}
         isExpanded={isExpanded}
         onExpand={() => setIsExpanded(true)}
         onCollapse={() => setIsExpanded(false)}
         onOpenEOD={() => setShowEOD(true)}
-        onOpenTasks={() => setShowTasks(true)}
+        onOpenTasks={(taskId?: number) => {
+          setSelectedTaskId(taskId ?? null);
+          setShowTasks(true);
+        }}
         onOpenSettings={() => setShowSettings(true)}
         onSimulateCall={handleSimulateCall}
         currentOutfit={currentOutfit}
@@ -394,7 +453,11 @@ export function App() {
       {showTasks && (
         <TasksDrawer
           tasks={tasks}
-          onClose={() => setShowTasks(false)}
+          selectedTaskId={selectedTaskId}
+          onClose={() => {
+            setShowTasks(false);
+            setSelectedTaskId(null);
+          }}
           onRefresh={loadTasks}
         />
       )}

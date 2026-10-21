@@ -1,0 +1,55 @@
+{
+  "projects": [
+    {
+      "id": "sto_ai_services",
+      "name": "STO AI Services",
+      "folder": "C:\\Users\\Paperchase\\Documents\\STO-AI-SERVICES",
+      "claude_md": "C:\\Users\\Paperchase\\Documents\\STO-AI-SERVICES\\CLAUDE.md",
+      "keywords": [
+        "sto",
+        "ai services",
+        "sto-ai"
+      ]
+    },
+    {
+      "id": "nlp_to_sql",
+      "name": "NLP to SQL Multi-Agentic",
+      "folder": "C:\\Users\\Paperchase\\OneDrive - Paperchase Accountancy\\Documents\\NLP-to-SQL_multi-agentic",
+      "claude_md": "C:\\Users\\Paperchase\\OneDrive - Paperchase Accountancy\\Documents\\NLP-to-SQL_multi-agentic\\CLAUDE.md",
+      "keywords": [
+        "nlp",
+        "sql",
+        "multi-agentic",
+        "nlp-to-sql",
+        "query"
+      ]
+    },
+    {
+      "id": "gp_prediction",
+      "name": "GP Prediction",
+      "folder": "C:\\Users\\Paperchase\\OneDrive - Paperchase Accountancy\\Documents\\GP-Prediction",
+      "claude_md": "C:\\Users\\Paperchase\\OneDrive - Paperchase Accountancy\\Documents\\GP-Prediction\\CLAUDE.md",
+      "keywords": [
+        "gp",
+        "prediction",
+        "gross profit",
+        "gp-prediction",
+        "forecast"
+      ]
+    },
+    {
+      "id": "newgen_ocr",
+      "name": "NewGenOCR",
+      "folder": "C:\\Users\\Paperchase\\OneDrive - Paperchase Accountancy\\Desktop\\NewGenOCR",
+      "claude_md": "C:\\Users\\Paperchase\\OneDrive - Paperchase Accountancy\\Desktop\\NewGenOCR\\CLAUDE.md",
+      "keywords": [
+        "newgen",
+        "ocr",
+        "newgenocr",
+        "receipt",
+        "invoice",
+        "extraction"
+      ]
+    }
+  ]
+}

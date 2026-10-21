@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   CheckCircle2, 
   Circle, 
@@ -18,13 +18,41 @@ interface TasksDrawerProps {
   tasks: TaskItem[];
   onClose: () => void;
   onRefresh: () => void;
+  selectedTaskId?: number | null;
 }
 
-export const TasksDrawer: React.FC<TasksDrawerProps> = ({ tasks, onClose, onRefresh }) => {
+export const TasksDrawer: React.FC<TasksDrawerProps> = ({ tasks, onClose, onRefresh, selectedTaskId }) => {
   const [newTitle, setNewTitle] = useState('');
   const [newInterval, setNewInterval] = useState(30);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [isScanningTeams, setIsScanningTeams] = useState(false);
+
+  const handleScanTeams = async () => {
+    setIsScanningTeams(true);
+    try {
+      const res = await api.scanTeamsScreen('Dhiraj');
+      if (res && res.success) {
+        onRefresh();
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsScanningTeams(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedTaskId) {
+      const timer = setTimeout(() => {
+        const el = document.getElementById(`task-drawer-item-${selectedTaskId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedTaskId]);
 
   const handleUpdateInterval = async (id: number, intervalMins: number) => {
     try {
@@ -87,8 +115,8 @@ export const TasksDrawer: React.FC<TasksDrawerProps> = ({ tasks, onClose, onRefr
     }
   };
 
-  const pendingTasks = tasks.filter(t => t.status === 'pending');
-  const completedTasks = tasks.filter(t => t.status === 'completed');
+  const pendingTasks = [...tasks].filter(t => t.status === 'pending').sort((a, b) => (b.id || 0) - (a.id || 0));
+  const completedTasks = [...tasks].filter(t => t.status === 'completed').sort((a, b) => (b.id || 0) - (a.id || 0));
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex justify-end">
@@ -159,6 +187,24 @@ export const TasksDrawer: React.FC<TasksDrawerProps> = ({ tasks, onClose, onRefr
             ))}
           </div>
         </form>
+ 
+        {/* 1-Click Scan Teams for Tasks */}
+        <div className="mb-3">
+          <button
+            type="button"
+            onClick={handleScanTeams}
+            disabled={isScanningTeams}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-900 transition cursor-pointer text-xs font-semibold disabled:opacity-60 shadow-xs"
+          >
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
+              <span>{isScanningTeams ? 'Inspecting screen for tasks...' : "Scan Teams Screen for Dhiraj's Tasks"}</span>
+            </div>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-200 text-blue-800 font-bold uppercase tracking-wider">
+              {isScanningTeams ? 'Scanning...' : '1-Click Scan'}
+            </span>
+          </button>
+        </div>
 
         {/* Tasks List */}
         <div className="flex-1 overflow-y-auto space-y-3 pr-1">
@@ -171,14 +217,21 @@ export const TasksDrawer: React.FC<TasksDrawerProps> = ({ tasks, onClose, onRefr
           {pendingTasks.map((t) => (
             <div
               key={t.id}
-              className="p-3.5 rounded-2xl bg-neutral-50 border border-neutral-200 hover:border-neutral-300 transition space-y-2 group"
+              id={`task-drawer-item-${t.id}`}
+              className={`p-3.5 rounded-2xl bg-neutral-50 border transition space-y-2 group ${
+                selectedTaskId === t.id
+                  ? 'ring-2 ring-emerald-500 bg-emerald-50/70 border-emerald-300 shadow-md'
+                  : 'border-neutral-200 hover:border-neutral-300'
+              }`}
             >
               <div className="flex items-start gap-2.5">
                 <button
+                  type="button"
                   onClick={() => handleToggle(t.id)}
-                  className="mt-0.5 text-neutral-400 hover:text-black transition cursor-pointer"
+                  title="Mark as completed"
+                  className="mt-0.5 text-neutral-400 hover:text-emerald-600 transition cursor-pointer flex-shrink-0"
                 >
-                  <Circle className="w-4 h-4" />
+                  <Circle className="w-4 h-4 min-w-[16px] min-h-[16px] max-w-[16px] max-h-[16px] aspect-square flex-shrink-0" />
                 </button>
                 <div className="flex-1">
                   <h4 className="text-xs font-semibold text-black leading-tight">
@@ -296,16 +349,23 @@ export const TasksDrawer: React.FC<TasksDrawerProps> = ({ tasks, onClose, onRefr
                 {completedTasks.map((t) => (
                   <div
                     key={t.id}
-                    className="p-3 rounded-xl bg-neutral-100 border border-neutral-200 flex items-center justify-between opacity-60"
+                    id={`task-drawer-item-${t.id}`}
+                    className={`p-3 rounded-xl bg-neutral-100 border flex items-center justify-between transition ${
+                      selectedTaskId === t.id
+                        ? 'ring-2 ring-emerald-500 bg-emerald-50/70 border-emerald-300 opacity-100 shadow-md'
+                        : 'border-neutral-200 opacity-60 hover:opacity-90'
+                    }`}
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-1 min-w-0 mr-2">
                       <button
+                        type="button"
                         onClick={() => handleToggle(t.id)}
-                        className="text-black transition cursor-pointer"
+                        title="Mark as pending"
+                        className="text-emerald-600 hover:text-neutral-500 transition cursor-pointer flex-shrink-0"
                       >
-                        <CheckCircle2 className="w-4 h-4" />
+                        <CheckCircle2 className="w-4 h-4 min-w-[16px] min-h-[16px] max-w-[16px] max-h-[16px] aspect-square flex-shrink-0" />
                       </button>
-                      <span className="text-xs line-through text-neutral-500 font-medium">
+                      <span className="text-xs line-through text-neutral-500 font-medium truncate">
                         {t.title}
                       </span>
                     </div>

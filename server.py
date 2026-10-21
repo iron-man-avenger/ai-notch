@@ -27,13 +27,15 @@ from core.ai_summarizer import summarize_activities_with_gemini, ask_assistant_g
 from core.devops_client import AzureDevOpsClient
 from core.news_fetcher import fetch_relevant_news
 from core.export_logger import save_daily_markdown_log, save_ai_bulleted_summary
-from core.teams_task_detector import TeamsTaskWatcher, analyze_teams_text_with_gemini
+from core.teams_task_detector import TeamsTaskWatcher, analyze_teams_text_with_gemini, extract_teams_tasks_from_screen
 from core.voice_listener import WindowsJarvisListener
 from core.web_searcher import search_web_organic, format_search_results_for_llm
 from core.screen_vision import capture_desktop_bytes, analyze_screen_with_gemini, suggest_message_reply
 from core.document_extractor import document_extractor
 from core.rag_engine import rag_engine
 from core.rag_chat import generate_rag_response, stream_rag_tokens
+from core.project_manager import project_manager
+from core.outlook_reader import outlook_reader, outlook_watcher
 
 # Initialize DB
 init_db()
@@ -226,6 +228,13 @@ def on_auto_approval_event(record):
     })
 auto_approver.on_approval_callback = on_auto_approval_event
 
+def on_outlook_attention_event(item):
+    broadcast_sync({
+        "type": "OUTLOOK_ATTENTION_ALERT",
+        "data": item
+    })
+outlook_watcher.on_attention_callback = on_outlook_attention_event
+
 @app.on_event("startup")
 async def startup_event():
     global main_loop
@@ -237,8 +246,9 @@ async def startup_event():
     teams_detector.start()
     teams_task_watcher.start()
     task_reminder_watcher.start()
+    outlook_watcher.start()
     # Note: Voice engine does NOT start by default. Starts on click only from chat!
-    print("[Assistant Server] Tracker, Teams detector, Task watcher, and Reminder engines started.")
+    print("[Assistant Server] Tracker, Teams detector, Task watcher, Reminder, and Outlook engines started.")
     
     # Warmup FastEmbed RAG model in background so first query has zero cold-start delay
     def warmup_rag():
@@ -256,6 +266,7 @@ def shutdown_event():
     teams_detector.stop()
     teams_task_watcher.stop()
     task_reminder_watcher.stop()
+    outlook_watcher.stop()
     jarvis_listener.stop()
 
 # ----------------- REST API Endpoints -----------------
@@ -270,6 +281,44 @@ def get_status():
         "meeting_subject": teams_detector.meeting_subject,
         "pending_tasks_count": len(pending_tasks)
     }
+
+@app.get("/api/projects")
+def get_registered_projects():
+    projs = project_manager.get_projects()
+    result = []
+    for p in projs:
+        content = project_manager.get_claude_md_content(p)
+        result.append({
+            "id": p.get("id"),
+            "name": p.get("name"),
+            "folder": p.get("folder"),
+            "claude_md": p.get("claude_md"),
+            "exists": bool(content),
+            "content_length": len(content),
+            "keywords": p.get("keywords", [])
+        })
+    return result
+
+@app.get("/api/outlook/attention")
+def get_outlook_attention():
+    return outlook_reader.get_attention_items()
+
+@app.post("/api/outlook/dismiss/{item_id}")
+def dismiss_outlook_attention(item_id: str):
+    outlook_reader.mark_item_handled(item_id)
+    return {"success": True}
+
+@app.post("/api/outlook/sync")
+def sync_outlook_now():
+    def do_sync():
+        new_items = outlook_reader.process_latest()
+        for it in new_items:
+            broadcast_sync({
+                "type": "OUTLOOK_ATTENTION_ALERT",
+                "data": it
+            })
+    threading.Thread(target=do_sync, daemon=True).start()
+    return {"status": "sync_triggered", "current_items": outlook_reader.get_attention_items()}
 
 @app.get("/api/activities/today")
 def get_activities():
@@ -1131,39 +1180,88 @@ def simulate_call():
     teams_detector.trigger_mock_call_ended("Sprint Architecture Review")
     return {"success": True, "message": "Simulated Teams Call Ended event broadcasted!"}
 
-# Simulate / Trigger Teams Task Detection (like Bimal Desai's message)
+# Teams Task Extraction (Text, Clipboard, and Screen Vision)
 class AnalyzeTeamsTextRequest(BaseModel):
     text: str
-    sender: Optional[str] = "Bimal Desai"
+    sender: Optional[str] = "Teams"
+    user_name: Optional[str] = None
 
 @app.post("/api/teams/analyze-text")
 def api_analyze_teams_text(req: AnalyzeTeamsTextRequest):
-    task = analyze_teams_text_with_gemini(req.text, sender=req.sender)
-    if task:
+    target_user = req.user_name or get_setting("user_name") or "Dhiraj"
+    tasks = analyze_teams_text_with_gemini(req.text, sender=req.sender, user_name=target_user)
+    if tasks:
+        payload = {
+            "is_task": True,
+            "title": tasks[0].get("title", ""),
+            "description": tasks[0].get("description", ""),
+            "priority": tasks[0].get("priority", "High"),
+            "sender": tasks[0].get("sender", req.sender or "Teams"),
+            "project": tasks[0].get("project", ""),
+            "tasks": tasks
+        }
         broadcast_sync({
             "type": "TEAMS_TASK_PROPOSAL",
-            "data": task
+            "data": payload
         })
-        return {"success": True, "task": task}
-    return {"success": False, "message": "No actionable task found in text."}
+        return {"success": True, "tasks": tasks, "count": len(tasks)}
+    return {"success": False, "message": f"No actionable tasks found in text for {target_user}."}
+
+class ScanTeamsScreenRequest(BaseModel):
+    user_name: Optional[str] = None
+
+@app.post("/api/teams/scan-screen")
+def api_scan_teams_screen(req: Optional[ScanTeamsScreenRequest] = None):
+    target_user = (req.user_name if req else None) or get_setting("user_name") or "Dhiraj"
+    screen_bytes = capture_desktop_bytes(window_controller)
+    if not screen_bytes:
+        return {"success": False, "message": "Failed to capture desktop screen."}
+
+    tasks = extract_teams_tasks_from_screen(screen_bytes, user_name=target_user)
+    if tasks:
+        payload = {
+            "is_task": True,
+            "title": tasks[0].get("title", ""),
+            "description": tasks[0].get("description", ""),
+            "priority": tasks[0].get("priority", "High"),
+            "sender": "Teams Screen",
+            "project": tasks[0].get("project", ""),
+            "tasks": tasks
+        }
+        broadcast_sync({
+            "type": "TEAMS_TASK_PROPOSAL",
+            "data": payload
+        })
+        return {"success": True, "tasks": tasks, "count": len(tasks)}
+    return {"success": False, "message": f"No tasks assigned to {target_user} were found on screen."}
 
 @app.post("/api/teams/simulate-task")
 def api_simulate_task():
     sample_text = "updated the API .. pass X-User-Id with their portal user id instead of X-User-Email"
-    task = analyze_teams_text_with_gemini(sample_text, sender="Bimal Desai")
-    if not task:
-        task = {
+    tasks = analyze_teams_text_with_gemini(sample_text, sender="Bimal Desai")
+    if not tasks:
+        tasks = [{
             "is_task": True,
             "title": "Update API: Use X-User-Id instead of X-User-Email",
             "sender": "Bimal Desai",
             "description": "Pass X-User-Id with portal user id instead of X-User-Email in API requests.",
-            "priority": "High"
-        }
+            "priority": "High",
+            "project": "API Services"
+        }]
+    payload = {
+        "is_task": True,
+        "title": tasks[0].get("title", ""),
+        "description": tasks[0].get("description", ""),
+        "priority": tasks[0].get("priority", "High"),
+        "sender": "Bimal Desai",
+        "project": tasks[0].get("project", ""),
+        "tasks": tasks
+    }
     broadcast_sync({
         "type": "TEAMS_TASK_PROPOSAL",
-        "data": task
+        "data": payload
     })
-    return {"success": True, "task": task}
+    return {"success": True, "tasks": tasks}
 
 
 # Window resizing and dragging endpoints (Native Qt Dock)
@@ -1392,8 +1490,17 @@ async def websocket_endpoint(websocket: WebSocket):
             }
         }))
         while True:
-            # Keep connection alive & listen for client pings
+            # Keep connection alive & listen for client pings and commands
             data = await websocket.receive_text()
+            try:
+                msg = json.loads(data)
+                mtype = msg.get("type")
+                if mtype == "WINDOW_MOVE" and window_controller:
+                    window_controller.sig_move.emit(int(msg.get("dx", 0)), int(msg.get("dy", 0)))
+                elif mtype == "WINDOW_SNAP_TOP" and window_controller:
+                    window_controller.sig_snap_top.emit()
+            except Exception:
+                pass
     except WebSocketDisconnect:
         if websocket in connected_clients:
             connected_clients.remove(websocket)

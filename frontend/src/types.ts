@@ -22,11 +22,29 @@ export interface TaskItem {
   id: number;
   title: string;
   description: string;
-  source: 'manual' | 'teams_call' | 'eod_gemini';
+  source: 'manual' | 'teams_call' | 'eod_gemini' | string;
   status: 'pending' | 'completed';
   reminder_interval_mins: number;
   devops_id?: string;
   created_at: string;
+}
+
+export interface TaskProposalItem {
+  title: string;
+  description?: string;
+  project?: string;
+  priority?: string;
+  sender?: string;
+  source?: string;
+}
+
+export interface TaskProposalData {
+  title: string;
+  description?: string;
+  priority?: string;
+  sender?: string;
+  project?: string;
+  tasks?: TaskProposalItem[];
 }
 
 export interface EODTaskProposal {
@@ -74,4 +92,33 @@ export interface ReplySuggestion {
   tone?: string;
   copied_to_clipboard?: boolean;
 }
+
+export interface OutlookAttentionItem {
+  id: string;
+  sender: string;
+  subject: string;
+  preview: string;
+  created?: string;
+  needs_attention?: boolean;
+  urgency?: 'high' | 'medium' | 'low';
+  project?: string;
+  reason?: string;
+  summary?: string;
+  suggested_reply?: string;
+  is_task?: boolean;
+  task_title?: string;
+  task_description?: string;
+  task_priority?: string;
+}
+
+export interface ProjectInfo {
+  id: string;
+  name: string;
+  folder: string;
+  claude_md: string;
+  exists: boolean;
+  content_length: number;
+  keywords: string[];
+}
+
 

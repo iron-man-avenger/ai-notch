@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from core.db import get_setting
 from core.rag_engine import rag_engine
 from core.web_searcher import search_web_organic, format_search_results_for_llm
+from core.project_manager import project_manager
 
 load_dotenv()
 
@@ -58,9 +59,21 @@ def generate_rag_response(
         except Exception as e_s:
             print(f"[RAG Web Search Warning] {e_s}")
 
+    # 2.5 Check for project context match
+    matched_project = project_manager.match_project_by_text(query)
+    project_context_str = ""
+    if matched_project:
+        p_name = matched_project.get("name")
+        p_content = project_manager.get_claude_md_content(matched_project, max_chars=3500)
+        citations.append(f"Project: {p_name}")
+        project_context_str = f"\nVERIFIED PROJECT ARCHITECTURE & DOCUMENTATION ({p_name}):\n{p_content}\n"
+    elif any(term in q_lower for term in ["my projects", "what projects", "list projects", "all projects"]):
+        all_ctx = project_manager.get_all_projects_context_for_prompt()
+        citations.append("Projects Registry")
+        project_context_str = f"\nREGISTERED DEVELOPER PROJECTS:\n{all_ctx}\n"
+
     # 3. Build verified context block
     rag_context_blocks = []
-    citations = []
     for c in chunks:
         ref = c["doc_ref"]
         if ref not in citations:
@@ -76,6 +89,7 @@ def generate_rag_response(
 
     full_prompt = f"""{SYSTEM_RAG_PROMPT}
 
+{project_context_str}
 {context_section}
 {web_context_str}
 

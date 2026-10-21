@@ -1,12 +1,17 @@
-import type { TaskItem, EODTaskProposal, NewsArticle, AppSettings, ActivityLog, AppSummary } from './types';
+import type { TaskItem, EODTaskProposal, NewsArticle, AppSettings, ActivityLog, AppSummary, OutlookAttentionItem, ProjectInfo } from './types';
 
 const BASE_URL = 'http://127.0.0.1:8765';
 
 let accumDx = 0;
 let accumDy = 0;
 let moveRafPending = false;
+let moveInFlight = false;
+let activeWs: WebSocket | null = null;
 
 export const api = {
+  registerWebSocket(ws: WebSocket | null) {
+    activeWs = ws;
+  },
   async getStatus() {
     const res = await fetch(`${BASE_URL}/api/status`);
     return res.json();
@@ -174,11 +179,20 @@ export const api = {
     return res.json();
   },
 
-  async analyzeTeamsText(text: string, sender: string = 'Bimal Desai'): Promise<{ success: boolean; task?: any }> {
+  async analyzeTeamsText(text: string, sender: string = 'Teams', userName: string = 'Dhiraj'): Promise<{ success: boolean; tasks?: any[]; count?: number; message?: string }> {
     const res = await fetch(`${BASE_URL}/api/teams/analyze-text`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, sender })
+      body: JSON.stringify({ text, sender, user_name: userName })
+    });
+    return res.json();
+  },
+
+  async scanTeamsScreen(userName: string = 'Dhiraj'): Promise<{ success: boolean; tasks?: any[]; count?: number; message?: string }> {
+    const res = await fetch(`${BASE_URL}/api/teams/scan-screen`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_name: userName })
     });
     return res.json();
   },
@@ -202,19 +216,33 @@ export const api = {
     if (!moveRafPending) {
       moveRafPending = true;
       requestAnimationFrame(async () => {
+        moveRafPending = false;
         const sendX = accumDx;
         const sendY = accumDy;
+        if (sendX === 0 && sendY === 0) return;
         accumDx = 0;
         accumDy = 0;
-        moveRafPending = false;
-        if (sendX !== 0 || sendY !== 0) {
+
+        // Try direct ultra-low-latency WebSocket first (<1ms)
+        if (activeWs && activeWs.readyState === WebSocket.OPEN) {
+          try {
+            activeWs.send(JSON.stringify({ type: 'WINDOW_MOVE', dx: sendX, dy: sendY }));
+            return;
+          } catch {}
+        }
+
+        // Guarded HTTP POST fallback: avoid overlapping concurrent requests
+        if (!moveInFlight) {
+          moveInFlight = true;
           try {
             await fetch(`${BASE_URL}/api/window/move`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ dx: sendX, dy: sendY })
             });
-          } catch {}
+          } catch {} finally {
+            moveInFlight = false;
+          }
         }
       });
     }
@@ -222,6 +250,12 @@ export const api = {
   },
 
   async snapTop(): Promise<{ success: boolean }> {
+    if (activeWs && activeWs.readyState === WebSocket.OPEN) {
+      try {
+        activeWs.send(JSON.stringify({ type: 'WINDOW_SNAP_TOP' }));
+        return { success: true };
+      } catch {}
+    }
     try {
       const res = await fetch(`${BASE_URL}/api/window/snap-top`, { method: 'POST' });
       return res.json();
@@ -331,5 +365,25 @@ export const api = {
     } catch {}
 
     return false;
+  },
+
+  async getProjects(): Promise<ProjectInfo[]> {
+    const res = await fetch(`${BASE_URL}/api/projects`);
+    return res.json();
+  },
+
+  async getOutlookAttention(): Promise<OutlookAttentionItem[]> {
+    const res = await fetch(`${BASE_URL}/api/outlook/attention`);
+    return res.json();
+  },
+
+  async dismissOutlookAttention(id: string): Promise<any> {
+    const res = await fetch(`${BASE_URL}/api/outlook/dismiss/${id}`, { method: 'POST' });
+    return res.json();
+  },
+
+  async syncOutlook(): Promise<any> {
+    const res = await fetch(`${BASE_URL}/api/outlook/sync`, { method: 'POST' });
+    return res.json();
   }
 };

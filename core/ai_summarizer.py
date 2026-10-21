@@ -85,8 +85,10 @@ def rule_based_summary(activities: List[Dict[str, Any]]) -> List[Dict[str, Any]]
 
     return tasks
 
+from core.project_manager import project_manager
+
 def summarize_activities_with_gemini(activities: List[Dict[str, Any]], custom_api_key: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Uses Gemini 3.8/flash-lite to group raw logs into high-level Research & Development tasks."""
+    """Uses Gemini to group raw logs into high-level R&D tasks mapped to active projects."""
     valid_activities = [a for a in activities if is_meaningful_activity(a)]
     if not valid_activities:
         return rule_based_summary([])
@@ -101,8 +103,15 @@ def summarize_activities_with_gemini(activities: List[Dict[str, Any]], custom_ap
         log_lines.append(f"- App: {a.get('app_name')}, Title: {a.get('window_title')}, Time: {format_seconds(a.get('total_seconds', 0))}")
     raw_logs = "\n".join(log_lines)
 
+    projects_ctx = project_manager.get_all_projects_context_for_prompt()
+
     prompt = f"""
 You are a Principal Engineering & R&D Lead reviewing today's developer activity logs.
+Below is the developer's registered project context and architecture:
+---
+{projects_ctx}
+---
+
 Below is the raw timeline of applications and documents worked on today:
 ---
 {raw_logs}
@@ -110,8 +119,9 @@ Below is the raw timeline of applications and documents worked on today:
 
 Your instructions:
 1. Synthesize these activities into 2 to 5 high-impact, professional Research & Development (R&D) work items suitable for Azure DevOps.
-2. Focus strictly on real engineering: Software development, Architecture, API integration, Bug fixes, Code reviews, and Technical meetings.
-3. Completely exclude any incidental system utilities or empty tasks.
+2. Directly map the developer's work to the registered projects (STO AI Services, NLP to SQL, GP Prediction, NewGenOCR) whenever applicable based on the window titles, files, or tasks.
+3. Focus strictly on real engineering: Software development, Architecture, API integration, Bug fixes, Code reviews, and Technical meetings.
+4. Completely exclude any incidental system utilities or empty tasks.
 4. Return ONLY a valid JSON list of objects matching this exact structure:
 [
   {{

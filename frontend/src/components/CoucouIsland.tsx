@@ -19,7 +19,7 @@ import { ThinkingOrb } from 'thinking-orbs';
 import { Mochi } from './Mochi';
 import { WardrobePicker } from './WardrobePicker';
 import { MarkdownMessage } from './MarkdownMessage';
-import type { ActivityInfo, TaskItem, VisionResult, ReplySuggestion } from '../types';
+import type { ActivityInfo, TaskItem, VisionResult, ReplySuggestion, OutlookAttentionItem, TaskProposalData, TaskProposalItem } from '../types';
 import { api } from '../api';
 import { sounds } from '../utils/sound';
 import { voice } from '../utils/voice';
@@ -39,25 +39,22 @@ interface CoucouIslandProps {
   pendingTasksCount: number;
   tasks: TaskItem[];
   onTasksRefresh: () => void;
-  taskProposal?: {
-    title: string;
-    sender?: string;
-    description?: string;
-    priority?: string;
-  } | null;
-  onAcceptProposal?: () => void;
-  onDismissProposal?: () => void;
+  taskProposal?: TaskProposalData | null;
+  onAcceptProposal?: (singleTask?: TaskProposalItem) => void;
+  onDismissProposal?: (singleTaskTitle?: string) => void;
   activeReminder?: {
     task: TaskItem;
     title: string;
     message?: string;
   } | null;
   onDismissReminder?: () => void;
+  outlookAlert?: OutlookAttentionItem | null;
+  onDismissOutlookAlert?: () => void;
   isExpanded: boolean;
   onExpand: () => void;
   onCollapse: () => void;
   onOpenEOD: () => void;
-  onOpenTasks: () => void;
+  onOpenTasks: (taskId?: number) => void;
   onOpenSettings: () => void;
   onSimulateCall: () => void;
   currentOutfit?: OutfitSelection;
@@ -113,6 +110,8 @@ export const CoucouIsland: React.FC<CoucouIslandProps> = ({
   onDismissProposal,
   activeReminder,
   onDismissReminder,
+  outlookAlert,
+  onDismissOutlookAlert,
   isExpanded,
   onExpand,
   onCollapse,
@@ -141,6 +140,28 @@ export const CoucouIsland: React.FC<CoucouIslandProps> = ({
   const [pointerCountingDown, setPointerCountingDown] = useState(false);
   const [visionScope, setVisionScope] = useState<'fullscreen' | 'pointer'>('fullscreen');
   const [customVisionPrompt, setCustomVisionPrompt] = useState('');
+  const [isScanningTeams, setIsScanningTeams] = useState(false);
+
+  const handleScanTeamsForTasks = async () => {
+    setIsScanningTeams(true);
+    sounds.playNotification();
+    try {
+      const res = await api.scanTeamsScreen('Dhiraj');
+      if (res && res.success && res.tasks && res.tasks.length > 0) {
+        sounds.playComplete();
+        voice.speak(`Found ${res.tasks.length} tasks for Dhiraj in Teams.`);
+        setShowVisionHub(false);
+        setActiveTab('tasks');
+      } else {
+        voice.speak("No tasks for Dhiraj found on screen.");
+      }
+    } catch (e) {
+      console.error(e);
+      sounds.playError();
+    } finally {
+      setIsScanningTeams(false);
+    }
+  };
 
   const executeVisionAction = async (focus: string, defaultQuery: string) => {
     const query = customVisionPrompt.trim() || defaultQuery;
@@ -169,6 +190,7 @@ export const CoucouIsland: React.FC<CoucouIslandProps> = ({
     }
   }, [targetTab]);
   const [copied, setCopied] = useState(false);
+  const [emailTaskAdded, setEmailTaskAdded] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
 
   // Real-Time Voice AI & J.A.R.V.I.S. Ambient hands-free state
@@ -187,7 +209,7 @@ export const CoucouIsland: React.FC<CoucouIslandProps> = ({
 
   // Coucou Responsive Content & Processing State
   const isProcessing = Boolean(isAnalyzingScreen || isResearching || voiceMode === 'listening' || voiceMode === 'thinking' || voiceMode === 'speaking');
-  const hasActiveContent = Boolean(showVisionHub || pointerCountingDown || isProcessing || replySuggestion || visionResult || activeReminder || taskProposal || voiceInterimText || displayVoiceReply || activeResearch);
+  const hasActiveContent = Boolean(showVisionHub || pointerCountingDown || isProcessing || replySuggestion || visionResult || activeReminder || outlookAlert || taskProposal || voiceInterimText || displayVoiceReply || activeResearch);
 
   // Wardrobe temporary hover preview
   const [previewOutfit, setPreviewOutfit] = useState<Outfit | null>(null);
@@ -346,13 +368,14 @@ export const CoucouIsland: React.FC<CoucouIslandProps> = ({
     activeTab === 'chat' ? (chatMessages.length > 2 ? 360 : 300) :
     activeTab === 'tasks' ? 280 :
     activeTab === 'wardrobe' ? 220 :
-    showVisionHub ? 340 :
+    showVisionHub ? 370 :
     pointerCountingDown ? 230 :
     isAnalyzingScreen ? 220 :
-    visionResult ? 340 :
+    visionResult ? 350 :
     replySuggestion ? (replySuggestion.reply.length > 120 ? 310 : 270) :
     displayVoiceReply || voiceMode === 'speaking' ? 260 :
     activeReminder ? 295 :
+    outlookAlert ? 285 :
     hasActiveContent ? 250 :
     175
   );
@@ -460,21 +483,24 @@ export const CoucouIsland: React.FC<CoucouIslandProps> = ({
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
 
-    // Do NOT drag when clicking buttons, inputs, links or Mochi canvas
+    // Do NOT drag when clicking buttons, inputs, links, selects, canvas or explicit no-drag areas
     const target = e.target as HTMLElement;
-    if (target.closest('button, input, textarea, a, select, [role="button"], canvas')) {
+    if (target.closest('button, input, textarea, a, select, [role="button"], canvas, [data-no-drag]')) {
       return;
     }
 
+    e.preventDefault();
     dragStartRef.current = { x: e.screenX, y: e.screenY };
     isDraggingRef.current = false;
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'grabbing';
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       if (!dragStartRef.current) return;
       const dx = moveEvent.screenX - dragStartRef.current.x;
       const dy = moveEvent.screenY - dragStartRef.current.y;
 
-      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+      if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
         isDraggingRef.current = true;
       }
 
@@ -485,16 +511,18 @@ export const CoucouIsland: React.FC<CoucouIslandProps> = ({
     };
 
     const handleMouseUp = () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('mousemove', handleMouseMove, { capture: true });
+      window.removeEventListener('mouseup', handleMouseUp, { capture: true });
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
       dragStartRef.current = null;
       setTimeout(() => {
         isDraggingRef.current = false;
-      }, 80);
+      }, 100);
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('mousemove', handleMouseMove, { capture: true });
+    window.addEventListener('mouseup', handleMouseUp, { capture: true });
   };
 
   const handleDoubleClickSnap = (e: React.MouseEvent) => {
@@ -858,11 +886,19 @@ export const CoucouIsland: React.FC<CoucouIslandProps> = ({
   // Active outfit resolution: Preview overrides saved choice while hovering
   const activeOutfit: Outfit = previewOutfit ?? resolveOutfit(currentOutfit, new Date());
 
-  const filteredTasks = tasks.filter(t => {
-    if (taskFilter === 'pending') return t.status === 'pending';
-    if (taskFilter === 'completed') return t.status === 'completed';
-    return true;
-  });
+  const filteredTasks = [...tasks]
+    .filter(t => {
+      if (taskFilter === 'pending') return t.status === 'pending';
+      if (taskFilter === 'completed') return t.status === 'completed';
+      return true;
+    })
+    .sort((a, b) => {
+      // 1. Pending tasks always show at top
+      if (a.status === 'pending' && b.status === 'completed') return -1;
+      if (a.status === 'completed' && b.status === 'pending') return 1;
+      // 2. Newer tasks first (by id descending or created_at descending)
+      return (b.id || 0) - (a.id || 0);
+    });
 
   const compactWidth = 288;
   const expandedWidth = 640;
@@ -1040,27 +1076,47 @@ export const CoucouIsland: React.FC<CoucouIslandProps> = ({
               </button>
             </div>
 
-            {/* Notch Center Gap Indicator / Drag Handle or Blinking Yellow Reminder Pill */}
-            {activeReminder ? (
-              <button 
-                type="button"
-                onClick={() => { setActiveTab('overview'); onExpand(); sounds.playClick(); }}
-                title={`Task Reminder: ${activeReminder.title} (Click to open)`}
-                className="flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/50 hover:bg-amber-400/30 transition cursor-pointer animate-pulse shadow-md shadow-amber-500/20 flex-shrink-0"
-              >
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-80" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400" />
-                </span>
-                <Clock className="w-3 h-3 text-amber-400" />
-                <span className="text-[10.5px] font-bold tracking-wide">Reminder</span>
-              </button>
-            ) : (
+            {/* Notch Center Drag Area: Reminder/Alert Pill + Dedicated Drag Handle */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {activeReminder && (
+                <button 
+                  type="button"
+                  onClick={() => { setActiveTab('overview'); onExpand(); sounds.playClick(); }}
+                  title={`Task Reminder: ${activeReminder.title} (Click to open)`}
+                  className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/50 hover:bg-amber-400/30 transition cursor-pointer animate-pulse shadow-md shadow-amber-500/20 flex-shrink-0"
+                >
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-80" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400" />
+                  </span>
+                  <Clock className="w-3 h-3 text-amber-400" />
+                  <span className="text-[10px] font-bold tracking-wide">Reminder</span>
+                </button>
+              )}
+
+              {outlookAlert && (
+                <button 
+                  type="button"
+                  onClick={() => { setActiveTab('overview'); onExpand(); sounds.playClick(); }}
+                  title={`Outlook Email: ${outlookAlert.sender} - ${outlookAlert.subject}`}
+                  className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/50 hover:bg-sky-500/30 transition cursor-pointer animate-pulse shadow-md shadow-sky-500/20 flex-shrink-0"
+                >
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-80" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-sky-400" />
+                  </span>
+                  <span className="text-[10px] font-bold tracking-wide">📬 {outlookAlert.project || 'Email Alert'}</span>
+                </button>
+              )}
+
+              {/* Dedicated Drag Handle with generous hit area */}
               <div 
-                title="Drag Notch anywhere (Double-click to snap top)"
-                className="w-16 h-1 rounded-full bg-white/20 hover:bg-white/40 cursor-grab active:cursor-grabbing transition" 
-              />
-            )}
+                title="Drag Island anywhere on desktop (Double-click to snap top-center)"
+                className="py-2 px-3 -my-2 flex items-center justify-center cursor-grab active:cursor-grabbing group/grip select-none"
+              >
+                <div className="w-14 h-1.5 rounded-full bg-white/25 group-hover/grip:bg-white/50 group-active/grip:bg-white/75 transition-colors shadow-xs" />
+              </div>
+            </div>
 
             {/* Right Action Buttons */}
             <div className="flex items-center gap-1.5">
@@ -1368,7 +1424,7 @@ export const CoucouIsland: React.FC<CoucouIslandProps> = ({
                       ) : taskProposal ? (
                         <span className="text-cyan-300 text-[11px] font-bold flex items-center gap-1">
                           <Sparkles className="w-3 h-3 text-cyan-400" />
-                          <span>New Task</span>
+                          <span>{taskProposal.tasks && taskProposal.tasks.length > 1 ? `${taskProposal.tasks.length} Teams Tasks` : 'New Task'}</span>
                         </span>
                       ) : (
                         <span className="text-neutral-400 text-[11px]">Active</span>
@@ -1458,8 +1514,8 @@ export const CoucouIsland: React.FC<CoucouIslandProps> = ({
                         </div>
                       </div>
 
-                      {/* 4 Tool Cards in 2x2 Grid (1-Click Execution with Themed Mini Mochi Avatars) */}
-                      <div className="grid grid-cols-2 gap-2 my-auto">
+                      {/* 5 Tool Cards with Scrollable Area and No-Drag Protection */}
+                      <div data-no-drag className="grid grid-cols-2 gap-2 flex-1 overflow-y-auto max-h-[225px] pr-1 py-0.5 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent">
                         {/* 1. Diagnose Error (Red / Cyberpunk Mochi with Sunglasses & Bang badge) */}
                         <button
                           onClick={() => executeVisionAction(
@@ -1541,6 +1597,32 @@ export const CoucouIsland: React.FC<CoucouIslandProps> = ({
                           </div>
                           <span className="text-[9px] text-neutral-400 leading-tight">
                             Executive response for Teams chats or emails
+                          </span>
+                        </button>
+
+                        {/* 5. Scan Teams for Dhiraj's Tasks (Full width, Blue/Indigo gradient) */}
+                        <button
+                          type="button"
+                          onClick={handleScanTeamsForTasks}
+                          disabled={isScanningTeams}
+                          className="col-span-2 flex items-center justify-between p-2.5 rounded-xl bg-gradient-to-r from-blue-950/60 via-indigo-950/50 to-cyan-950/60 hover:from-blue-900/70 hover:to-indigo-900/70 border border-blue-500/40 hover:border-blue-400/60 transition cursor-pointer text-left group min-h-[48px] disabled:opacity-60 shadow-sm"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 rounded-lg bg-blue-500/25 border border-blue-400/50 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                              <Sparkles className="w-4 h-4 text-blue-300 animate-pulse" />
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="text-[11.5px] font-bold text-white group-hover:text-blue-100 flex items-center gap-1.5">
+                                Scan Teams for Dhiraj's Tasks
+                                <span className="text-[8.5px] px-1.5 py-0.2 rounded-full bg-blue-500/30 text-blue-200 border border-blue-400/30 uppercase tracking-wider font-mono">1-Click</span>
+                              </span>
+                              <span className="text-[9.5px] text-neutral-300/80 leading-tight">
+                                {isScanningTeams ? 'Inspecting screen with Gemini Vision...' : "Extract deliverables & action items assigned to you in Teams"}
+                              </span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-bold text-blue-300 group-hover:text-blue-100 group-hover:translate-x-0.5 transition-transform flex items-center gap-1 flex-shrink-0 bg-blue-500/20 px-2 py-1 rounded-md border border-blue-400/30">
+                            {isScanningTeams ? 'Scanning...' : 'Scan Now →'}
                           </span>
                         </button>
                       </div>
@@ -1828,14 +1910,62 @@ export const CoucouIsland: React.FC<CoucouIslandProps> = ({
                       <div className="flex flex-col min-w-0">
                         <div className="flex items-center gap-1.5">
                           <span className="text-[10px] uppercase font-bold text-blue-300">
-                            {taskProposal.sender ? `Task from ${taskProposal.sender}` : 'Teams Task'}
+                            {taskProposal.tasks && taskProposal.tasks.length > 1
+                              ? `${taskProposal.tasks.length} Tasks for Dhiraj from Teams`
+                              : taskProposal.sender ? `Task from ${taskProposal.sender}` : 'Teams Task'}
                           </span>
                           <span className="text-[9px] px-1.5 rounded-full bg-blue-500/20 text-blue-300 font-mono">
                             {taskProposal.priority || 'High'}
                           </span>
                         </div>
-                        <span className="text-xs font-semibold text-white truncate">{taskProposal.title}</span>
+                        <span className="text-xs font-semibold text-white truncate">
+                          {taskProposal.tasks && taskProposal.tasks.length > 1
+                            ? taskProposal.tasks.map(t => t.title).join(' • ')
+                            : taskProposal.title}
+                        </span>
                       </div>
+                    </div>
+                  ) : outlookAlert ? (
+                    /* Case 6: Outlook Email Attention Alert */
+                    <div className="flex flex-col p-3 rounded-xl bg-gradient-to-br from-sky-950/40 via-blue-950/30 to-indigo-950/40 border border-sky-500/30 shadow-md">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
+                          <span className="text-[10px] uppercase font-bold text-sky-300 tracking-wider">
+                            Outlook Attention
+                          </span>
+                          {outlookAlert.project && (
+                            <span className="text-[9.5px] px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-200 border border-sky-400/30 font-medium">
+                              {outlookAlert.project}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[9.5px] px-2 py-0.5 rounded-full bg-white/10 text-neutral-300 truncate max-w-[140px]">
+                          {outlookAlert.sender}
+                        </span>
+                      </div>
+                      <div className="text-[13px] font-bold text-white line-clamp-1 mb-1">
+                        {outlookAlert.subject}
+                      </div>
+                      {outlookAlert.is_task && outlookAlert.task_title ? (
+                        <div className="flex flex-col gap-0.5 p-2 rounded-lg bg-emerald-950/40 border border-emerald-500/30 my-1 animate-in fade-in duration-150">
+                          <div className="flex items-center justify-between text-[11px] font-bold text-emerald-200">
+                            <span className="truncate">⚡ {outlookAlert.task_title}</span>
+                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 flex-shrink-0 ml-1">
+                              {outlookAlert.task_priority || 'High'}
+                            </span>
+                          </div>
+                          {outlookAlert.task_description && (
+                            <p className="text-[10px] text-neutral-300 line-clamp-2 leading-tight">
+                              {outlookAlert.task_description}
+                            </p>
+                          )}
+                        </div>
+                      ) : outlookAlert.summary ? (
+                        <div className="text-[11.5px] text-neutral-300 line-clamp-2 leading-relaxed">
+                          {outlookAlert.summary}
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -1879,6 +2009,10 @@ export const CoucouIsland: React.FC<CoucouIslandProps> = ({
                           <span>15m</span>
                         </button>
                       </div>
+                    ) : outlookAlert ? (
+                      <span className="text-[10.5px] text-sky-300 font-medium truncate max-w-[220px]">
+                        {outlookAlert.reason || "Review requested"}
+                      </span>
                     ) : (
                       <span className="text-[10.5px] text-neutral-400">
                         {showVisionHub ? "Select a vision action for your screen" :
@@ -1910,6 +2044,71 @@ export const CoucouIsland: React.FC<CoucouIslandProps> = ({
                           <span>Mark Done</span>
                         </button>
                       </>
+                    ) : outlookAlert ? (
+                      <div className="flex items-center gap-1.5">
+                        {outlookAlert.is_task && outlookAlert.task_title && (
+                          <button
+                            onClick={async () => {
+                              sounds.playClick();
+                              try {
+                                await api.createTask({
+                                  title: outlookAlert.task_title!,
+                                  description: outlookAlert.task_description || outlookAlert.summary || outlookAlert.subject,
+                                  source: `outlook_${outlookAlert.sender || 'email'}`
+                                });
+                                setEmailTaskAdded(true);
+                                sounds.playComplete();
+                                voice.speak("Task added to your list.");
+                                onTasksRefresh();
+                                setTimeout(() => setEmailTaskAdded(false), 3000);
+                              } catch (e) {
+                                console.error(e);
+                              }
+                            }}
+                            title="Add actionable task or ticket to your pending tasks"
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold transition active:scale-95 cursor-pointer shadow-xs"
+                          >
+                            <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            <span>{emailTaskAdded ? 'Added!' : 'Add to Tasks'}</span>
+                          </button>
+                        )}
+                        {outlookAlert.suggested_reply && (
+                          <button
+                            onClick={async () => {
+                              sounds.playClick();
+                              await api.copyToClipboard(outlookAlert.suggested_reply!);
+                              setCopied(true);
+                              setTimeout(() => setCopied(false), 2000);
+                            }}
+                            title="Copy AI Suggested Reply"
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 border border-sky-400/40 text-xs font-semibold transition active:scale-95 cursor-pointer shadow-xs"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>{copied ? 'Copied!' : 'Copy Reply'}</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            sounds.playClick();
+                            onDismissOutlookAlert?.();
+                            api.dismissOutlookAttention(outlookAlert.id);
+                          }}
+                          className="px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/20 text-neutral-300 text-xs font-medium transition cursor-pointer"
+                        >
+                          Dismiss
+                        </button>
+                        <button
+                          onClick={() => {
+                            sounds.playClick();
+                            setActiveTab('chat');
+                            setChatInput(`Regarding the email from ${outlookAlert.sender} about "${outlookAlert.subject}": `);
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition active:scale-95 cursor-pointer shadow-xs"
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          <span>Chat</span>
+                        </button>
+                      </div>
                     ) : showVisionHub ? (
                       <button
                         onClick={() => {
@@ -1985,17 +2184,17 @@ export const CoucouIsland: React.FC<CoucouIslandProps> = ({
                     ) : taskProposal ? (
                       <>
                         <button
-                          onClick={onDismissProposal}
+                          onClick={() => onDismissProposal?.()}
                           className="coucou-btn coucou-btn-secondary text-[11px]"
                         >
                           <span>Dismiss</span>
                         </button>
                         <button
-                          onClick={onAcceptProposal}
+                          onClick={() => onAcceptProposal?.()}
                           className="coucou-btn coucou-btn-primary text-[11px]"
                         >
                           <Check className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Accept Task</span>
+                          <span>{taskProposal.tasks && taskProposal.tasks.length > 1 ? `Accept All (${taskProposal.tasks.length})` : 'Accept Task'}</span>
                         </button>
                       </>
                     ) : displayVoiceReply ? (
@@ -2472,6 +2671,18 @@ export const CoucouIsland: React.FC<CoucouIslandProps> = ({
 
                 <div className="flex flex-col gap-1.5 pt-2 border-t border-white/5">
                   <button
+                    type="button"
+                    onClick={handleScanTeamsForTasks}
+                    disabled={isScanningTeams}
+                    className="flex items-center justify-between w-full text-[10px] text-blue-300 hover:text-white px-2 py-1.5 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/30 transition cursor-pointer font-medium disabled:opacity-50"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles className="w-3 h-3 text-blue-400 animate-pulse" />
+                      <span>{isScanningTeams ? 'Scanning...' : 'Scan Teams'}</span>
+                    </span>
+                    <span className="text-[8.5px] px-1 py-0.2 rounded bg-blue-500/30 text-blue-200 uppercase font-mono">Dhiraj</span>
+                  </button>
+                  <button
                     onClick={() => { onOpenTasks(); sounds.playClick(); }}
                     className="flex items-center justify-between w-full text-[10px] text-neutral-300 hover:text-white px-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition cursor-pointer"
                   >
@@ -2490,44 +2701,102 @@ export const CoucouIsland: React.FC<CoucouIslandProps> = ({
               {/* Right Column: Full Proposal Box + Task Checklist */}
               <div className="flex-1 flex flex-col gap-2 p-3 rounded-2xl bg-[#141518] border border-white/8 overflow-hidden">
                 
-                {/* 1. Full unclipped Task Proposal Box if present */}
+                {/* 1. Full unclipped Task Proposal Box if present (supports single or multi-task lists) */}
                 {taskProposal && (
-                  <div className="flex flex-col gap-1.5 p-3 rounded-xl bg-gradient-to-r from-blue-950/90 to-indigo-950/80 border border-blue-500/40 animate-in fade-in duration-200 shadow-md">
+                  <div className="flex flex-col gap-2 p-3 rounded-xl bg-gradient-to-r from-blue-950/90 to-indigo-950/80 border border-blue-500/40 animate-in fade-in duration-200 shadow-md">
                     <div className="flex items-center justify-between">
                       <span className="flex items-center gap-1.5 text-[10px] font-bold text-blue-300 uppercase tracking-wide">
                         <Sparkles className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
-                        Task Proposal from {taskProposal.sender || 'Teams'}
+                        {taskProposal.tasks && taskProposal.tasks.length > 1
+                          ? `${taskProposal.tasks.length} Tasks Detected for Dhiraj (${taskProposal.sender || 'Teams'})`
+                          : `Task Proposal from ${taskProposal.sender || 'Teams'}`}
                       </span>
-                      <span className="text-[9px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-200 font-mono font-bold">
-                        {taskProposal.priority || 'High Priority'}
-                      </span>
+                      {taskProposal.tasks && taskProposal.tasks.length > 1 ? (
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => onAcceptProposal?.()}
+                            className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-500 text-white hover:bg-blue-400 text-[10px] font-bold transition cursor-pointer shadow"
+                          >
+                            <Check className="w-3 h-3 stroke-[3]" />
+                            <span>Add All ({taskProposal.tasks.length})</span>
+                          </button>
+                          <button
+                            onClick={() => onDismissProposal?.()}
+                            className="px-2 py-0.5 rounded-full bg-white/10 hover:bg-white/20 text-neutral-300 text-[10px] transition cursor-pointer"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-[9px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-200 font-mono font-bold">
+                          {taskProposal.priority || 'High Priority'}
+                        </span>
+                      )}
                     </div>
 
-                    <div className="text-xs font-bold text-white leading-snug">
-                      {taskProposal.title}
-                    </div>
-
-                    {taskProposal.description && (
-                      <div className="text-[11px] text-neutral-300 leading-relaxed max-h-[55px] overflow-y-auto pr-1">
-                        {taskProposal.description}
+                    {taskProposal.tasks && taskProposal.tasks.length > 1 ? (
+                      <div className="flex flex-col gap-1.5 max-h-[140px] overflow-y-auto pr-1">
+                        {taskProposal.tasks.map((item, idx) => (
+                          <div key={idx} className="flex flex-col gap-1 p-2 rounded-lg bg-black/40 border border-white/10 hover:border-blue-400/30 transition">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-bold text-white leading-tight line-clamp-1">{item.title}</span>
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
+                                {item.project && (
+                                  <span className="text-[8.5px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-medium">
+                                    {item.project}
+                                  </span>
+                                )}
+                                <button
+                                  onClick={() => onAcceptProposal?.(item)}
+                                  title="Add this task"
+                                  className="px-2 py-0.5 rounded-full bg-white text-black hover:bg-neutral-200 text-[10px] font-bold cursor-pointer"
+                                >
+                                  + Add
+                                </button>
+                                <button
+                                  onClick={() => onDismissProposal?.(item.title)}
+                                  title="Dismiss this task"
+                                  className="w-4 h-4 rounded-full bg-white/10 hover:bg-white/20 text-neutral-400 hover:text-white flex items-center justify-center text-[10px] cursor-pointer"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            </div>
+                            {item.description && (
+                              <p className="text-[10px] text-neutral-300 line-clamp-2 leading-tight">
+                                {item.description}
+                              </p>
+                            )}
+                          </div>
+                        ))}
                       </div>
+                    ) : (
+                      <>
+                        <div className="text-xs font-bold text-white leading-snug">
+                          {taskProposal.title}
+                        </div>
+                        {taskProposal.description && (
+                          <div className="text-[11px] text-neutral-300 leading-relaxed max-h-[55px] overflow-y-auto pr-1">
+                            {taskProposal.description}
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2 pt-1 border-t border-white/10">
+                          <button
+                            onClick={() => onAcceptProposal?.()}
+                            className="flex items-center gap-1 px-3 py-1 rounded-full bg-white text-black hover:bg-neutral-200 text-xs font-bold transition cursor-pointer active:scale-95 shadow"
+                          >
+                            <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            <span>Add to Tasks</span>
+                          </button>
+                          <button
+                            onClick={() => onDismissProposal?.()}
+                            className="px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/15 text-neutral-300 text-xs font-medium transition cursor-pointer"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      </>
                     )}
-
-                    <div className="flex items-center gap-2 pt-1 border-t border-white/10">
-                      <button
-                        onClick={onAcceptProposal}
-                        className="flex items-center gap-1 px-3 py-1 rounded-full bg-white text-black hover:bg-neutral-200 text-xs font-bold transition cursor-pointer active:scale-95 shadow"
-                      >
-                        <Check className="w-3.5 h-3.5 stroke-[3]" />
-                        <span>Add to Tasks</span>
-                      </button>
-                      <button
-                        onClick={onDismissProposal}
-                        className="px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/15 text-neutral-300 text-xs font-medium transition cursor-pointer"
-                      >
-                        Dismiss
-                      </button>
-                    </div>
                   </div>
                 )}
 
@@ -2586,24 +2855,44 @@ export const CoucouIsland: React.FC<CoucouIslandProps> = ({
                     filteredTasks.map((t) => (
                       <div 
                         key={t.id} 
-                        className="flex items-center justify-between px-2.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 transition group text-xs border border-white/5"
+                        className="flex items-center justify-between px-2.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 transition group text-xs border border-white/5 gap-2"
                       >
-                        <div 
-                          onClick={() => handleToggleTask(t.id)}
-                          className="flex items-center gap-2.5 cursor-pointer overflow-hidden flex-1 mr-2"
-                        >
-                          <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all ${
-                            t.status === 'completed' 
-                              ? 'bg-emerald-500 border-emerald-500 text-black' 
-                              : 'border-white/30 hover:border-white/60'
-                          }`}>
-                            {t.status === 'completed' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                        {/* Left: Fixed-Size Radio Button + Clickable Task Name */}
+                        <div className="flex items-center gap-2.5 overflow-hidden flex-1 min-w-0">
+                          {/* Exact 16px Circular Radio Button - Only clicking this toggles the task */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleTask(t.id);
+                            }}
+                            title={t.status === 'completed' ? "Mark as pending" : "Mark as completed"}
+                            className={`w-4 h-4 min-w-[16px] min-h-[16px] max-w-[16px] max-h-[16px] aspect-square rounded-full border flex items-center justify-center transition-all flex-shrink-0 cursor-pointer shadow-xs ${
+                              t.status === 'completed' 
+                                ? 'bg-emerald-500 border-emerald-500 text-black shadow-emerald-500/20' 
+                                : 'border-white/35 hover:border-emerald-400 bg-transparent hover:bg-white/10'
+                            }`}
+                          >
+                            {t.status === 'completed' && <Check className="w-2.5 h-2.5 stroke-[3] text-black" />}
+                          </button>
+
+                          {/* Task Name: Clicking opens the full drawer of that task */}
+                          <div 
+                            onClick={() => {
+                              sounds.playClick();
+                              onOpenTasks(t.id);
+                            }}
+                            title="Click task name to open in Full Drawer"
+                            className="flex-1 min-w-0 cursor-pointer py-0.5 group/title select-none"
+                          >
+                            <span className={`truncate block text-xs font-medium transition-colors ${
+                              t.status === 'completed' 
+                                ? 'line-through text-neutral-500 group-hover/title:text-neutral-400' 
+                                : 'text-neutral-100 group-hover/title:text-white group-hover/title:underline'
+                            }`}>
+                              {t.title}
+                            </span>
                           </div>
-                          <span className={`truncate text-xs font-medium ${
-                            t.status === 'completed' ? 'line-through text-neutral-500' : 'text-neutral-100'
-                          }`}>
-                            {t.title}
-                          </span>
                         </div>
 
                         <div className="flex items-center gap-1.5 flex-shrink-0 relative">
